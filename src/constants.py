@@ -1,8 +1,15 @@
 
 class Constants:
     URL_LINK_TO_DATA = 'URL_LINK_TO_DATA'
+    EXPOSURE_NAME = 'EXPOSURE_NAME'
+    NB_CLAIMS = 'NB_CLAIMS'
+    CLAIM_AMOUNT = 'CLAIM_AMOUNT'
 
 
 params = {
-    Constants.URL_LINK_TO_DATA: "https://gitfront.io/r/katrienantonio/a29071bdc7b2f20f24268be573ef54b68c65168c/IABE-DS-module-1/raw/assignment/assignment_data.csv"
+    Constants.URL_LINK_TO_DATA: "https://gitfront.io/r/katrienantonio/a29071bdc7b2f20f24268be573ef54b68c65168c/IABE-DS-module-1/raw/assignment/assignment_data.csv",
+    Constants.EXPOSURE_NAME:'duree',
+    Constants.NB_CLAIMS:'nbrtotc',
+    Constants.CLAIM_AMOUNT:'chargtot',
+
 }
