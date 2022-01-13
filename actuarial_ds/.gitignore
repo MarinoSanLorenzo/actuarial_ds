@@ -1,0 +1,8 @@
+labs/
+assignment_notes.pdf
+venv/
+.idea/
+.ipynb_checkpoints/
+.DS_Store/
+_archive/
+theory/
