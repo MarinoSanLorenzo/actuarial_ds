@@ -4,6 +4,9 @@ class Constants:
     EXPOSURE_NAME = 'EXPOSURE_NAME'
     NB_CLAIMS = 'NB_CLAIMS'
     CLAIM_AMOUNT = 'CLAIM_AMOUNT'
+    VARIABLES_TO_EXCLUDE = 'VARIABLES_TO_EXCLUDE'
+    MAX_NB_ANCIENNETE = 'MAX_NB_ANCIENNETE'
+    MAX_CLAIM_AMOUNT = 'MAX_CLAIM_AMOUNT'
 
 
 params = {
@@ -11,5 +14,8 @@ params = {
     Constants.EXPOSURE_NAME:'duree',
     Constants.NB_CLAIMS:'nbrtotc',
     Constants.CLAIM_AMOUNT:'chargtot',
+    Constants.VARIABLES_TO_EXCLUDE:['lnexpo'],
+    Constants.MAX_NB_ANCIENNETE: 82,
+    Constants.MAX_CLAIM_AMOUNT: 500_000,
 
 }

@@ -5,6 +5,9 @@ from collections import defaultdict
 __all__ = ['get_distribution', 'get_distribution_info_for_categorical_variables']
 
 def get_distribution_info_for_categorical_variables(df:pd.DataFrame) -> pd.DataFrame:
+    '''
+    Construct a dataframe with information about the distribution of the categorical variables
+    '''
     info = defaultdict(list)
     cat_data = df.select_dtypes(include=['object'])
     cols = cat_data.columns
