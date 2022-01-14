@@ -7,26 +7,34 @@ from src.utils import get_avg_target_per_numerical_bin
 
 __all__ = ['plot_univariate_numerical_variables_distribution', 'plot_univariate_categorical_variables_distribution', 'plot_avg_target_per_numerical_bin', 'plt_avg_target_per_category']
 
-def plt_avg_target_per_category(df:pd.DataFrame, categorical_variables:List[str], params:Dict[str, Any]) -> None:
+def plt_avg_target_per_category(df:pd.DataFrame, categorical_variables:List[str], params:Dict[str, Any],  target:str=None) -> None:
     nb_claims = params.get(Constants.NB_CLAIMS)
+    if not target:
+        target = nb_claims
     for feature in categorical_variables:
-        pd.DataFrame(df.groupby(feature)[nb_claims].mean()).sort_values(by=[nb_claims], ascending=False).plot.bar()
-        plt.title(f'Average number of claims per category of {feature.upper()}')
-        plt.ylabel(f'Average nb of claims')
+        avg_target = pd.DataFrame(df.groupby(feature)[target].mean()).sort_values(by=[target], ascending=False)
+        avg_nb_claims = pd.DataFrame(df.groupby(feature)[nb_claims].mean()).sort_values(by=[nb_claims], ascending=False)
+        pd.merge(avg_target, avg_nb_claims, on=feature).plot.bar()
+        plt.title(f'Average {target} and {nb_claims} per category of {feature.upper()}')
+        plt.ylabel(f'Average {target} and {nb_claims}')
         plt.xlabel(f'{feature.upper()}')
         plt.show()
         plt.close()
 
-def plot_avg_target_per_numerical_bin(df:pd.DataFrame, numerical_variables:List[str], params:Dict[str, Any]) -> None:
+def plot_avg_target_per_numerical_bin(df:pd.DataFrame, numerical_variables:List[str], params:Dict[str, Any], target:str=None) -> None:
     nb_claims, claim_amount, var_to_exclude = params.get(Constants.NB_CLAIMS), params.get(Constants.CLAIM_AMOUNT), params.get(Constants.VARIABLES_TO_EXCLUDE)
+    if not target:
+        target = nb_claims
     for num_var in numerical_variables:
-        if not num_var in {*params.get(Constants.VARIABLES_TO_EXCLUDE), nb_claims, claim_amount}:
-            print(num_var)
-            avg_claim_frequency_per_bin = get_avg_target_per_numerical_bin(df, num_var, nb_claims)
-            avg_claim_frequency_per_bin.plot()
-            plt.ylabel(f'Average {Constants.NB_CLAIMS}')
+        if not num_var in {*params.get(Constants.VARIABLES_TO_EXCLUDE), nb_claims, claim_amount, target}:
+            avg_claim_frequency_per_bin = get_avg_target_per_numerical_bin(df, num_var, target)
+            avg_nb_claims_per_bin = get_avg_target_per_numerical_bin(df, num_var, nb_claims)
+            avg_claim_frequency_per_bin.plot(label=target)
+            avg_nb_claims_per_bin.plot(label=nb_claims)
+            plt.ylabel(f'Average {target} and {nb_claims}')
             plt.xticks(rotation=90)
-            plt.title(f'Average {Constants.NB_CLAIMS} per bin {num_var}')
+            plt.title(f'Average {target} and {nb_claims} per bin {num_var}')
+            plt.legend()
             plt.show()
             plt.close()
 
