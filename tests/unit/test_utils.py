@@ -34,7 +34,7 @@ class TestUtils:
         cv_results = run_hyperopt(df=df,
                                   hyperparams_space=hyperparams_space,
                                   model_fit_func=fit_regularized_model,
-                                  loss_function=mean_poisson_deviance,
+                                  loss_function=loss_function,
                                   params_to_record=params_to_record)
 
         assert isinstance(cv_results, pd.DataFrame)
