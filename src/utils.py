@@ -64,7 +64,7 @@ def run_hyperopt(df:pd.DataFrame,
     start = time.time()
     duration = time.time() - start
     cv_results = defaultdict(list)
-    while (nb_iter < max_iter) and (duration < limit_time):
+    while (nb_iter <= max_iter) and (duration < limit_time):
         if is_debug:
             print(f'--------------------------------')
             print(f'{nb_iter} iteration starting...')
