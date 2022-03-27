@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Union, Any, Iterable
+from typing import Dict, Tuple, List, Union, Any, Iterable, NamedTuple
 from types import FunctionType
 import pandas as pd
 from collections import defaultdict, namedtuple
@@ -14,6 +14,8 @@ import math
 import sklearn
 import time
 import random
+from collections import OrderedDict
+import re
 
 __all__ = [
     "get_distribution",
@@ -27,10 +29,25 @@ __all__ = [
     'run_hyperparameter_search_regularized_model',
     'get_validation_folds',
     'run_cross_validation',
-    'run_hyperopt'
+    'run_hyperopt',
+
 ]
 
 ValidationFold = namedtuple('ValidationFold', 'train validation name')
+
+
+def get_feature_from_modality(feature_modality:str):
+    return feature_modality[:re.search('\_', feature_modality).start()]
+
+def get_features_modallities(scorecard:pd.DataFrame, reference_class_lst:List[str],
+                             reference_class_sev_lst:List[str]):
+    reference_class_set = set(reference_class_lst) & set(reference_class_sev_lst)
+    all_features_modalities = set(set(scorecard.index) | reference_class_set) - set(['Intercept'])
+    features_modalities = defaultdict(list)
+    for feature_modality in all_features_modalities:
+        feature = get_feature_from_modality(feature_modality)
+        features_modalities[feature].append(feature_modality)
+    return OrderedDict(features_modalities)
 
 def run_hyperopt(df:pd.DataFrame,
                  hyperparams_space:Dict[str, Iterable],
@@ -255,18 +272,27 @@ def run_glm_backward_selection(
 
 
 def get_reference_classes(
-    df: pd.DataFrame, target: str, exposure_name: str
+    df: pd.DataFrame, target: str,
+        exposure_name: str=None,
+        valid_for_frequency:bool=True,
+        valid_for_severity:bool=False,
+
 ) -> List[str]:
+    valid_for_frequency = not(valid_for_severity)
+    valid_for_severity = not(valid_for_frequency)
+    if valid_for_frequency:
+        df["claim_frequency"] = df[target] / df[exposure_name]
+        target = "claim_frequency"
     reference_class_lst = []
-    df["claim_frequency"] = df[target] / df[exposure_name]
     for cat_var in df.select_dtypes(include=["category", "uint8"]):
-        avg_frequency_per_category = pd.DataFrame(
-            df.groupby(cat_var)["claim_frequency"].mean()
-        ).sort_values(by=["claim_frequency"], ascending=False)
-        reference_class = avg_frequency_per_category.tail(1).last_valid_index()
+        avg_target_per_category = pd.DataFrame(
+            df.groupby(cat_var)[target].mean()
+        ).sort_values(by=[target], ascending=False)
+        reference_class = avg_target_per_category.tail(1).last_valid_index()
         print(f"The reference class of {cat_var} is {reference_class}")
         reference_class_lst.append(f"{cat_var}_{reference_class}")
-    df.drop(columns="claim_frequency", inplace=True)
+    if valid_for_frequency:
+        df.drop(columns=target, inplace=True)
     return reference_class_lst
 
 
