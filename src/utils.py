@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Union, Any, Iterable, NamedTuple
+from typing import Dict, Tuple, List, Union, Any, Iterable, NamedTuple, Set
 from types import FunctionType
 import pandas as pd
 from collections import defaultdict, namedtuple
@@ -14,7 +14,7 @@ import math
 import sklearn
 import time
 import random
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import re
 
 __all__ = [
@@ -30,16 +30,101 @@ __all__ = [
     'get_validation_folds',
     'run_cross_validation',
     'run_hyperopt',
+    'get_features_modalities',
+    'get_nb_max_combinations',
+    'select_random_modality_vector',
+    'generate_all_profiles',
+    'does_profile_belong_to_ref_class',
+    'PurePremiunProfile',
+    'get_risk_premium',
+    'does_profile_belong_to_ref_class',
+    'get_all_pure_premium_profiles'
 
 ]
 
 ValidationFold = namedtuple('ValidationFold', 'train validation name')
 
 
+
+
+class PurePremiunProfile(NamedTuple):
+    profile_name: str
+    features_lst: List[str]
+    mean_freq: float
+    mean_sev: float
+    pure_premium_risk: float
+    calc_details:str
+
+def get_all_pure_premium_profiles(features_modalities:Dict[str, List[str]],
+                              exp_params_freq:Dict[str, float],
+                              exp_params_sev:Dict[str, float],
+                              reference_class_lst:List[str],
+                              reference_class_sev_lst:List[str],
+                              sep_token:str='---') -> Dict[str, PurePremiunProfile]:
+    unique_profiles = generate_all_profiles(features_modalities, sep_token=sep_token)
+    premium_profiles = defaultdict(list)
+    for profile in unique_profiles:
+        profile_parsed = profile.split(sep_token)
+        pp_freq = get_risk_premium(profile_parsed, exp_params_freq, reference_class_lst)
+        pp_sev = get_risk_premium(profile_parsed, exp_params_sev, reference_class_sev_lst)
+        mean_freq, mean_sev = pp_freq.risk_premium, pp_sev.risk_premium
+        premium_profiles[profile] = PurePremiunProfile(
+            profile_name=profile,
+            features_lst=profile_parsed,
+            mean_freq=mean_freq,
+            mean_sev=mean_sev,
+            pure_premium_risk=mean_freq * mean_sev,
+            calc_details = f'{pp_freq.formula_with_num_details}*{pp_sev.formula_with_num_details}'
+        )
+    return premium_profiles
+
+class RiskPremiumCalculationDetail(NamedTuple):
+    risk_premium:float
+    formula_with_num_details:str
+
+def get_risk_premium(profile: List[str], exp_params_risk: Dict[str, float], reference_class: List[str]) -> float:
+    risk_premium = exp_params_risk.get('Intercept')
+    formula_with_num_details = f'exp(Intercept)={round(risk_premium,2)}'
+
+    if does_profile_belong_to_ref_class(profile, reference_class):
+        return RiskPremiumCalculationDetail(risk_premium=risk_premium,
+                                            formula_with_num_details=formula_with_num_details)
+    formula_with_num_details_lst = [formula_with_num_details]
+    for modality in profile:
+        risk_premium *= exp_params_risk.get(modality, 1)
+        formula_with_num_details = f'exp({modality})={round(risk_premium, 2)}'
+        formula_with_num_details_lst.append(formula_with_num_details)
+
+    formula_with_num_details = '*'.join(formula_with_num_details_lst)
+    return RiskPremiumCalculationDetail(risk_premium=risk_premium,
+                                            formula_with_num_details=formula_with_num_details)
+
+def does_profile_belong_to_ref_class(profile:List[str], reference_class_lst:List[str]) -> bool:
+    return all([modality in reference_class_lst for modality in profile])
+
+def generate_all_profiles(features_modallities:Dict[str, List[str]], sep_token:str) -> Set[str]:
+    nb_max_combinations = get_nb_max_combinations(features_modallities)
+    unique_profiles = set()
+    while len(unique_profiles) != nb_max_combinations:
+        modality_vector = select_random_modality_vector(features_modallities)
+        modality_vector_str = sep_token.join(modality_vector)
+        if modality_vector_str not in unique_profiles:
+            unique_profiles.add(modality_vector_str)
+    return unique_profiles
+
+def select_random_modality_vector(features_modallities:Dict[str, List[str]]) -> List[str]:
+    return [random.choice(modality_lst) for modality_lst in features_modallities.values()]
+
+def get_nb_max_combinations(features_modallities:Dict[str, List[str]]) -> int:
+    nb_max_combinations = 1
+    for v in features_modallities.values():
+        nb_max_combinations *= len(v)
+    return nb_max_combinations
+
 def get_feature_from_modality(feature_modality:str):
     return feature_modality[:re.search('\_', feature_modality).start()]
 
-def get_features_modallities(scorecard:pd.DataFrame, reference_class_lst:List[str],
+def get_features_modalities(scorecard:pd.DataFrame, reference_class_lst:List[str],
                              reference_class_sev_lst:List[str]):
     reference_class_set = set(reference_class_lst) & set(reference_class_sev_lst)
     all_features_modalities = set(set(scorecard.index) | reference_class_set) - set(['Intercept'])
