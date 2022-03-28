@@ -84,15 +84,16 @@ class RiskPremiumCalculationDetail(NamedTuple):
 
 def get_risk_premium(profile: List[str], exp_params_risk: Dict[str, float], reference_class: List[str]) -> float:
     risk_premium = exp_params_risk.get('Intercept')
-    formula_with_num_details = f'exp(Intercept)={round(risk_premium,2)}'
+    formula_with_num_details = f'(exp(Intercept)={round(risk_premium,2)})'
 
     if does_profile_belong_to_ref_class(profile, reference_class):
         return RiskPremiumCalculationDetail(risk_premium=risk_premium,
                                             formula_with_num_details=formula_with_num_details)
     formula_with_num_details_lst = [formula_with_num_details]
     for modality in profile:
-        risk_premium *= exp_params_risk.get(modality, 1)
-        formula_with_num_details = f'exp({modality})={round(risk_premium, 2)}'
+        exp_param_risk = exp_params_risk.get(modality, 1)
+        risk_premium *= exp_param_risk
+        formula_with_num_details = f'(exp({modality})={round(exp_param_risk, 2)})'
         formula_with_num_details_lst.append(formula_with_num_details)
 
     formula_with_num_details = '*'.join(formula_with_num_details_lst)
@@ -126,12 +127,26 @@ def get_feature_from_modality(feature_modality:str):
 
 def get_features_modalities(scorecard:pd.DataFrame, reference_class_lst:List[str],
                              reference_class_sev_lst:List[str]):
-    reference_class_set = set(reference_class_lst) & set(reference_class_sev_lst)
+    reference_class_set = set(reference_class_lst) | set(reference_class_sev_lst)
     all_features_modalities = set(set(scorecard.index) | reference_class_set) - set(['Intercept'])
     features_modalities = defaultdict(list)
     for feature_modality in all_features_modalities:
         feature = get_feature_from_modality(feature_modality)
         features_modalities[feature].append(feature_modality)
+
+    lst_features_not_in_model = []
+    for feature in features_modalities:
+        is_feature_in_model = False
+        for modality in set(scorecard.index):
+            if feature in modality:
+                is_feature_in_model = True
+                break
+        else:
+            lst_features_not_in_model.append(feature)
+
+    for feature_not_in_model in lst_features_not_in_model:
+        del features_modalities[feature_not_in_model]
+
     return OrderedDict(features_modalities)
 
 def run_hyperopt(df:pd.DataFrame,
