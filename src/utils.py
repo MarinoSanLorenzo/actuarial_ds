@@ -111,7 +111,7 @@ def run_hyperopt_for_tree_based_methods(df_train:pd.DataFrame,
                                         target_name:str=params.get(Constants.CLAIM_FREQUENCY),
                                         limit_time:int=100,
                                         max_iter:int=100,
-                                        is_debug:bool=False) -> pd.DataFrame:
+                                        is_debug:bool=False) -> Tuple[pd.DataFrame,  sklearn.tree._classes.DecisionTreeRegressor]:
     '''
     :param df: Train Dataset on which the data fold will be build
     :param hyperparams_space: dictionarry with the name (that the model_fit_func takes) of the hyperparam and an iterable containing all values to sample from
@@ -134,6 +134,8 @@ def run_hyperopt_for_tree_based_methods(df_train:pd.DataFrame,
     start = time.time()
     duration = time.time() - start
     cv_results = defaultdict(list)
+    best_models = None
+    best_val_score = math.inf
     while (nb_iter <= max_iter) and (duration < limit_time):
         if is_debug:
             print(f'--------------------------------')
@@ -143,6 +145,7 @@ def run_hyperopt_for_tree_based_methods(df_train:pd.DataFrame,
         hyper_space_combi = '-'.join([str(f'{p}:{random_hyper_param.get(p)}') for p in params_to_record])
         if hyper_space_combi in tried_hyperparam:  # do not try an aleady tested hyperparam combination
             continue
+
         cv_result = run_cross_validation_for_tree_based_methods(df_train=df_train,
                                                                 model_fit_func=model_fit_func,
                                                                 params_models=random_hyper_param,
@@ -151,9 +154,15 @@ def run_hyperopt_for_tree_based_methods(df_train:pd.DataFrame,
                                                                 exposure_name=exposure_name,
                                                                 target_name=target_name)
 
+        cv_mean_loss = np.mean(cv_result['loss'])
+        cv_std_loss = np.std(cv_result['loss'])
+        if cv_mean_loss < best_val_score:
+            best_models = cv_result['model']
+            best_val_score = cv_mean_loss
+
         cv_results['losses'].append(cv_result['loss'])
-        cv_results['cv_mean_loss'].append(np.mean(cv_result['loss']))
-        cv_results['cv_std_loss'].append(np.std(cv_result['loss']))
+        cv_results['cv_mean_loss'].append(cv_mean_loss)
+        cv_results['cv_std_loss'].append(cv_std_loss)
         cv_results['hyperparams'].append(hyper_space_combi)
         for param_to_record in params_to_record:
             cv_results[param_to_record].append(random_hyper_param[param_to_record])
@@ -163,7 +172,7 @@ def run_hyperopt_for_tree_based_methods(df_train:pd.DataFrame,
         duration = time.time() - start
 
     #TODO: return the best score based on the error quadratic lower mean loss and lower std deviation
-    return pd.DataFrame.from_dict(cv_results)
+    return pd.DataFrame.from_dict(cv_results), best_models
 
 
 class PurePremiunProfile(NamedTuple):
