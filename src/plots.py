@@ -10,8 +10,22 @@ __all__ = [
     "plot_univariate_categorical_variables_distribution",
     "plot_avg_target_per_numerical_bin",
     "plt_avg_target_per_category",
-    'plot_params_vs_alpha'
+    'plot_params_vs_alpha',
+    'get_feature_importance_for_tree_based_methods'
 ]
+
+class TreeModel:
+    pass
+
+def get_feature_importance_for_tree_based_methods(tree_model:TreeModel) -> None:
+    feature_importances = dict()
+    for feature, importance in zip(x_train.columns, tree_model.feature_importances_):
+        feature_importances[feature] = importance
+    feature_importances_df = pd.DataFrame.from_dict(feature_importances, orient='index')
+    feature_importances_df.rename(columns={0:'importance'}, inplace=True)
+    feature_importances_df.query('importance>0').sort_values(by='importance').plot.barh(figsize=(8,8))
+    plt.title('Feature importances')
+    plt.xlabel('Sum of reduced deviance imduced by a feature splits')
 
 def plot_params_vs_alpha(reg_results:pd.DataFrame) -> None:
     reg_results.plot()
