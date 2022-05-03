@@ -17,9 +17,9 @@ __all__ = [
 class TreeModel:
     pass
 
-def get_feature_importance_for_tree_based_methods(tree_model:TreeModel) -> None:
+def get_feature_importance_for_tree_based_methods(tree_model:TreeModel, columns:List[str]) -> None:
     feature_importances = dict()
-    for feature, importance in zip(x_train.columns, tree_model.feature_importances_):
+    for feature, importance in zip(columns,  tree_model.feature_importances_):
         feature_importances[feature] = importance
     feature_importances_df = pd.DataFrame.from_dict(feature_importances, orient='index')
     feature_importances_df.rename(columns={0:'importance'}, inplace=True)
