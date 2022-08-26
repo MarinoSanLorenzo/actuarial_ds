@@ -16,6 +16,8 @@ import time
 import random
 from collections import OrderedDict, defaultdict
 import re
+import sklearn
+from sklearn.tree import DecisionTreeRegressor
 
 __all__ = [
     "get_distribution",
@@ -38,13 +40,140 @@ __all__ = [
     'PurePremiunProfile',
     'get_risk_premium',
     'does_profile_belong_to_ref_class',
-    'get_all_pure_premium_profiles'
+    'get_all_pure_premium_profiles',
+    'run_hyperopt_for_tree_based_methods',
+    'fitting_regression_tree'
 
 ]
 
 ValidationFold = namedtuple('ValidationFold', 'train validation name')
 
 
+
+def run_cross_validation_for_tree_based_methods(
+        df_train: pd.DataFrame,
+        model_fit_func: FunctionType,
+        params_models: Dict[str, Iterable],
+        loss_function: Union[FunctionType],
+        params_to_record: List[str] = None,
+        exposure_name: str = params.get(Constants.EXPOSURE_NAME),
+        target_name: str = params.get(Constants.CLAIM_FREQUENCY)) -> Dict[str, List]:
+    '''
+    :param df: Train Dataset on which the data fold will be build
+    :param model_fit_func: a custom/user-defined wrapper function fitting a model
+    :param params_models: a dictionary with the keys as parameter of the model_fit_func
+    :param loss_function: a user-defined function or sklearn.metric to assess the performance on the k-fold
+    :param params_to_record: a list containing all the hyperparam name to record
+    :return: a Dictionary with hyperparameters values, loss and models
+    '''
+
+    if not params_to_record:
+        params_to_record = list(params_models.keys())
+    validation_folds = get_validation_folds(df_train)
+    results = defaultdict(list)
+
+    for validation_fold in validation_folds:
+        x_train = validation_fold.train
+        exp_train, y_train = x_train[exposure_name], x_train[target_name]
+        x_train.drop(columns=[exposure_name, target_name], inplace=True)
+
+        model = model_fit_func(params_models, x_train, y_train, exp_train)
+
+        val_data = validation_fold.validation
+        val_x = val_data.drop(columns=[exposure_name, target_name])
+        y_pred_val, y_true_val, exp_val = model.predict(val_x), val_data[target_name], val_data[exposure_name]
+
+        if exposure_name:
+            val_loss = loss_function(y_true_val, y_pred_val, sample_weight=exp_val)
+        else:
+            val_loss = loss_function(y_true_val, y_pred_val)
+
+        results['loss'].append(val_loss)
+        results['model'].append(model)
+
+        for param_name in params_to_record:
+            results[param_name].append(params_models.get(param_name))
+    return results
+
+def fitting_regression_tree(params_model: Dict[str, Any],
+                            x_train: pd.DataFrame,
+                            y_train: Union[pd.Series, pd.DataFrame],
+                            exp_train: Union[pd.Series, pd.DataFrame]) -> DecisionTreeRegressor:
+    poisson_tree = DecisionTreeRegressor(**params_model)
+    poisson_tree.fit(x_train, y_train, sample_weight=exp_train)
+    return poisson_tree
+
+def run_hyperopt_for_tree_based_methods(df_train:pd.DataFrame,
+                                        hyperparams_space:Dict[str, Iterable],
+                                        model_fit_func:FunctionType,
+                                        loss_function:Union[FunctionType],
+                                        params_to_record:List[str]=None,
+                                        exposure_name:str=params.get(Constants.EXPOSURE_NAME),
+                                        target_name:str=params.get(Constants.CLAIM_FREQUENCY),
+                                        limit_time:int=100,
+                                        max_iter:int=100,
+                                        is_debug:bool=False) -> Tuple[pd.DataFrame,  DecisionTreeRegressor]:
+    '''
+    :param df: Train Dataset on which the data fold will be build
+    :param hyperparams_space: dictionarry with the name (that the model_fit_func takes) of the hyperparam and an iterable containing all values to sample from
+    :param model_fit_func:  a custom/user-defined wrapper function fitting a model
+    :param loss_function:  a user-defined function or sklearn.metric to assess the performance on the k-fold
+    :param params_to_record: a list containing all the hyperparam name to record
+    :param limit_time: maximum time in seconds to run the hyperopt
+    :param max_iter: number of max iterations to run the hyperopt
+    :return:
+    '''
+    max_combinations = np.cumprod([len(v) for v in hyperparams_space.values()])[-1]
+    tried_hyperparam = set()
+    if not max_iter:
+        max_iter = max_combinations
+    else:
+        max_iter = min(max_iter, max_combinations)
+    if is_debug:
+        print(f'the number of the maximum iterations is {max_iter}')
+    nb_iter = 1
+    start = time.time()
+    duration = time.time() - start
+    cv_results = defaultdict(list)
+    best_models = None
+    best_val_score = math.inf
+    while (nb_iter <= max_iter) and (duration < limit_time):
+        if is_debug:
+            print(f'--------------------------------')
+            print(f'{nb_iter} iteration starting...')
+            print(f'{duration} time elapsed...')
+        random_hyper_param = {hyperparam: random.choice(range_) for hyperparam, range_ in hyperparams_space.items()}
+        hyper_space_combi = '-'.join([str(f'{p}:{random_hyper_param.get(p)}') for p in params_to_record])
+        if hyper_space_combi in tried_hyperparam:  # do not try an aleady tested hyperparam combination
+            continue
+
+        cv_result = run_cross_validation_for_tree_based_methods(df_train=df_train,
+                                                                model_fit_func=model_fit_func,
+                                                                params_models=random_hyper_param,
+                                                                loss_function=loss_function,
+                                                                params_to_record=params_to_record,
+                                                                exposure_name=exposure_name,
+                                                                target_name=target_name)
+
+        cv_mean_loss = np.mean(cv_result['loss'])
+        cv_std_loss = np.std(cv_result['loss'])
+        if cv_mean_loss < best_val_score:
+            best_models = cv_result['model']
+            best_val_score = cv_mean_loss
+
+        cv_results['losses'].append(cv_result['loss'])
+        cv_results['cv_mean_loss'].append(cv_mean_loss)
+        cv_results['cv_std_loss'].append(cv_std_loss)
+        cv_results['hyperparams'].append(hyper_space_combi)
+        for param_to_record in params_to_record:
+            cv_results[param_to_record].append(random_hyper_param[param_to_record])
+
+        tried_hyperparam.add(hyper_space_combi)
+        nb_iter += 1
+        duration = time.time() - start
+
+    #TODO: return the best score based on the error quadratic lower mean loss and lower std deviation
+    return pd.DataFrame.from_dict(cv_results), best_models
 
 
 class PurePremiunProfile(NamedTuple):

@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from src.constants import Constants, params
+from src.constants import Constants, params, Constants2, params_blog_2
 from typing import List, Dict, Any
 from src.utils import get_avg_target_per_numerical_bin
 
@@ -50,15 +50,15 @@ def plot_avg_target_per_numerical_bin(
     target: str = None,
 ) -> None:
     nb_claims, claim_amount, var_to_exclude = (
-        params.get(Constants.NB_CLAIMS),
-        params.get(Constants.CLAIM_AMOUNT),
-        params.get(Constants.VARIABLES_TO_EXCLUDE),
+        params.get(Constants2.NB_CLAIMS),
+        params.get(Constants2.CLAIM_AMOUNT),
+        params.get(Constants2.VARIABLES_TO_EXCLUDE),
     )
     if not target:
         target = nb_claims
     for num_var in numerical_variables:
         if not num_var in {
-            *params.get(Constants.VARIABLES_TO_EXCLUDE),
+            *params.get(Constants2.VARIABLES_TO_EXCLUDE),
             nb_claims,
             claim_amount,
             target,
@@ -92,6 +92,7 @@ def plot_univariate_categorical_variables_distribution(
             plt.title(f"Bin distribution of {cat_var}")
             plt.xlabel(f"Categories of {cat_var}")
             plt.ylabel("Value count")
+            plt.xticks(rotation=90)
             plt.show()
             plt.close()
 
@@ -100,7 +101,7 @@ def plot_univariate_numerical_variables_distribution(
     df: pd.DataFrame, numerical_variables: List[str], params: Dict[str, Any]
 ) -> None:
     for num_var in numerical_variables:
-        if num_var not in params.get(Constants.VARIABLES_TO_EXCLUDE):
+        if num_var not in params.get(Constants2.VARIABLES_TO_EXCLUDE):
             sns.distplot(df[num_var])
             plt.show()
             plt.close()
