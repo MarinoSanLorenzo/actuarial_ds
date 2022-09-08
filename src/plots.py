@@ -10,14 +10,16 @@ __all__ = [
     "plot_univariate_categorical_variables_distribution",
     "plot_avg_target_per_numerical_bin",
     "plt_avg_target_per_category",
-    'plot_params_vs_alpha'
+    "plot_params_vs_alpha",
 ]
 
-def plot_params_vs_alpha(reg_results:pd.DataFrame) -> None:
+
+def plot_params_vs_alpha(reg_results: pd.DataFrame) -> None:
     reg_results.plot()
-    plt.xlabel('alpha')
-    plt.ylabel('coefficient')
-    plt.title('Coefficient by alpha value')
+    plt.xlabel("alpha")
+    plt.ylabel("coefficient")
+    plt.title("Coefficient by alpha value")
+
 
 def plt_avg_target_per_category(
     df: pd.DataFrame,
