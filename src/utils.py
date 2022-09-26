@@ -12,7 +12,6 @@ from tqdm import tqdm
 from sklearn.metrics import mean_poisson_deviance, mean_gamma_deviance
 import math
 import sklearn
-import time
 import random
 from collections import OrderedDict, defaultdict
 import re
@@ -33,7 +32,14 @@ from typing import *
 from pprint import pprint
 
 from typing import NamedTuple
-from collections import namedtuple
+from collections import namedtuple, defaultdict
+from time import time
+from sklearn.metrics import mean_poisson_deviance
+from mango.tuner import Tuner
+import matplotlib.pyplot as plt
+
+
+plt.style.use('ggplot')
 
 
 __all__ = [
@@ -62,10 +68,127 @@ __all__ = [
     "fitting_regression_tree",
     "fit_feed_forward_neural_network",
     "run_optimization_neural_network",
+    "LoggingOptimizerMango",
+    "LoggingOptimizerScikitLearn"
+
 ]
 
 ValidationFold = namedtuple("ValidationFold", "train validation name")
+results = defaultdict(lambda : defaultdict())
 
+class LoggingOptimizer:
+    pass
+
+class LoggingOptimizerMango(LoggingOptimizer):
+    # def __init__(self, EstimatorOptimizer:Any):
+    #     self.EstimatorOptimizer = EstimatorOptimizer
+    def __call__(self, EstimatorOptimizer:Any):
+        def wrapper(estimator_name: str,
+                    x_train: Union[pd.DataFrame, pd.Series, np.array],
+                    y_train: Union[pd.DataFrame, pd.Series, np.array],
+                    x_test: Union[pd.DataFrame, pd.Series, np.array],
+                    y_test: Union[pd.DataFrame, pd.Series, np.array],
+                    exp_train: Union[pd.DataFrame, pd.Series, np.array],
+                    exp_test: Union[pd.DataFrame, pd.Series, np.array],
+                    estimator:Any,
+                    *args, **kwargs) -> Tuple[Any, Dict[str, Dict[str, Any]]]:
+            global results
+            estimator_obj = EstimatorOptimizer(*args, **kwargs)
+            start_time = time()
+            optimisation_results = estimator_obj.minimize()
+            opt_time = (time() - start_time) / 60
+            best_params = optimisation_results['best_params']
+
+            estimator_bayesian_opt = estimator(**best_params)
+            estimator_bayesian_opt.fit(x_train, y_train, sample_weight=exp_train)
+            y_pred_train = estimator_bayesian_opt.predict(x_train)
+            y_pred_test = estimator_bayesian_opt.predict(x_test)
+            dev_train_estimator_bayesian_opt= mean_poisson_deviance(y_train, y_pred_train, sample_weight=exp_train)
+            dev_test_estimator_bayesian_opt = mean_poisson_deviance(y_test, y_pred_test, sample_weight=exp_test)
+
+            results['dev_poiss_train'][estimator_name] = dev_train_estimator_bayesian_opt
+            results['dev_poiss_test'][estimator_name] = dev_test_estimator_bayesian_opt
+            results['cv_std'][estimator_name] = np.nan
+            results['optimization_time'][estimator_name] = opt_time
+            results['best_params'][estimator_name] = best_params
+
+            return estimator_obj, results
+        return wrapper
+
+class LoggingOptimizerScikitLearn(LoggingOptimizer):
+    # def __init__(self, EstimatorOptimizer:Any):
+    #     self.EstimatorOptimizer = EstimatorOptimizer
+
+    def __call__(self, EstimatorOptimizer:Any)->FunctionType:
+        def wrapper(estimator_name: str,
+                    x_train: Union[pd.DataFrame, pd.Series, np.array],
+                    y_train: Union[pd.DataFrame, pd.Series, np.array],
+                    x_test: Union[pd.DataFrame, pd.Series, np.array],
+                    y_test: Union[pd.DataFrame, pd.Series, np.array],
+                    exp_train: Union[pd.DataFrame, pd.Series, np.array],
+                    exp_test: Union[pd.DataFrame, pd.Series, np.array],
+                    is_optimizer: bool,
+                    *args, **kwargs) -> Tuple[Any, Dict[str, Dict[str, Any]]]:
+            global results
+            estimator_obj = EstimatorOptimizer(*args, **kwargs)
+            start_time = time()
+            estimator_obj.fit(x_train, y_train, sample_weight=exp_train)
+            opt_time = (time() - start_time) / 60
+            if is_optimizer:
+                best_results_sorted = pd.DataFrame.from_dict(estimator_obj.cv_results_).sort_values(
+                    by='rank_test_score', ascending=True)
+                cv_std_results = best_results_sorted.query(
+                    "rank_test_score==1").std_test_score.drop_duplicates().squeeze()
+            dev_poiss_train = mean_poisson_deviance(y_train, estimator_obj.predict(x_train), sample_weight=exp_train)
+            dev_poiss_test = mean_poisson_deviance(y_test, estimator_obj.predict(x_test), sample_weight=exp_test)
+            results['dev_poiss_train'][estimator_name] = dev_poiss_train
+            results['dev_poiss_test'][estimator_name] = dev_poiss_test
+            results['cv_std'][estimator_name] = cv_std_results if is_optimizer else np.nan
+            results['optimization_time'][estimator_name] = opt_time
+            results['best_params'][estimator_name] = estimator_obj.best_params_ if is_optimizer else kwargs
+            return estimator_obj, results
+        return wrapper
+
+def log_optimization_results(Estimator:Any) ->FunctionType:
+    '''
+    Decorator to log the optimization results (optimization_time, scores, best parameters
+    '''
+
+    def wrapper(estimator_name:str,
+                x_train:Union[pd.DataFrame, pd.Series, np.array],
+                y_train:Union[pd.DataFrame, pd.Series, np.array],
+                x_test:Union[pd.DataFrame, pd.Series, np.array],
+                y_test:Union[pd.DataFrame, pd.Series, np.array],
+                exp_train:Union[pd.DataFrame, pd.Series, np.array],
+                exp_test:Union[pd.DataFrame, pd.Series, np.array],
+                is_optimizer:bool,
+                *args, **kwargs) -> Tuple[Any, Dict[str, Dict[str, Any]]]:
+        global results
+        estimator_obj = Estimator(*args, **kwargs)
+        start_time = time()
+        is_mango_optimizer = isinstance(estimator_obj, mango.tuner.Tuner)
+        if is_mango_optimizer:
+            mango_results = estimator_obj.minimize()
+        else:
+            estimator_obj.fit(x_train, y_train, sample_weight=exp_train)
+        opt_time = (time() - start_time) / 60
+        if is_optimizer:
+
+            best_results_sorted = pd.DataFrame.from_dict(estimator_obj.cv_results_).sort_values(by='rank_test_score', ascending=True)
+            cv_std_results = best_results_sorted.query(
+                "rank_test_score==1").std_test_score.drop_duplicates().squeeze()
+
+        dev_poiss_train = mean_poisson_deviance(y_train, estimator_obj.predict(x_train), sample_weight=exp_train)
+        dev_poiss_test = mean_poisson_deviance(y_test, estimator_obj.predict(x_test), sample_weight=exp_test)
+        results['dev_poiss_train'][estimator_name] = dev_poiss_train
+        results['dev_poiss_test'][estimator_name] = dev_poiss_test
+        results['cv_std'][estimator_name] = cv_std_results if is_optimizer else  np.nan
+        results['optimization_time'][estimator_name] = opt_time
+
+        results['best_params'][estimator_name] = estimator_obj.best_params_ if is_optimizer else kwargs
+
+        return estimator_obj, results
+    return wrapper
 
 def run_optimization_neural_network(
     x_train: np.array,
@@ -81,8 +204,8 @@ def run_optimization_neural_network(
 ) -> Tuple[pd.DataFrame, keras.engine.sequential.Sequential]:
     results = defaultdict(list)
     nb_experiment = 0
-    start = time.time()
-    elapsed_time = time.time() - start
+    start = time()
+    elapsed_time = time() - start
     layer_hyperparameters = [
         "activation",
         "dropout_rate",
@@ -128,6 +251,7 @@ def run_optimization_neural_network(
         results_df.sort_values(by="poisson_dev", ascending=True, inplace=True)
         results_df.reset_index(inplace=True, drop=True)
     return results_df, best_model
+
 
 
 def fit_feed_forward_neural_network(
@@ -208,6 +332,132 @@ def fit_feed_forward_neural_network(
         # default=False, Used for generator or keras.utils.Sequence input only. If True, use process-based threading. If unspecified, use_multiprocessing will default to False.
     )
     return model
+
+
+def run_cross_validation_for_tree_based_methods(
+        df_train: pd.DataFrame,
+        model_fit_func: FunctionType,
+        params_models: Dict[str, Iterable],
+        loss_function: Union[FunctionType],
+        params_to_record: List[str] = None,
+        exposure_name: str = params.get(Constants.EXPOSURE_NAME),
+        target_name: str = params.get(Constants.CLAIM_FREQUENCY)) -> Dict[str, List]:
+    '''
+    :param df: Train Dataset on which the data fold will be build
+    :param model_fit_func: a custom/user-defined wrapper function fitting a model
+    :param params_models: a dictionary with the keys as parameter of the model_fit_func
+    :param loss_function: a user-defined function or sklearn.metric to assess the performance on the k-fold
+    :param params_to_record: a list containing all the hyperparam name to record
+    :return: a Dictionary with hyperparameters values, loss and models
+    '''
+
+    if not params_to_record:
+        params_to_record = list(params_models.keys())
+    validation_folds = get_validation_folds(df_train)
+    results = defaultdict(list)
+
+    for validation_fold in validation_folds:
+        x_train = validation_fold.train
+        exp_train, y_train = x_train[exposure_name], x_train[target_name]
+        x_train.drop(columns=[exposure_name, target_name], inplace=True)
+
+        model = model_fit_func(params_models, x_train, y_train, exp_train)
+
+        val_data = validation_fold.validation
+        val_x = val_data.drop(columns=[exposure_name, target_name])
+        y_pred_val, y_true_val, exp_val = model.predict(val_x), val_data[target_name], val_data[exposure_name]
+
+        if exposure_name:
+            val_loss = loss_function(y_true_val, y_pred_val, sample_weight=exp_val)
+        else:
+            val_loss = loss_function(y_true_val, y_pred_val)
+
+        results['loss'].append(val_loss)
+        results['model'].append(model)
+
+        for param_name in params_to_record:
+            results[param_name].append(params_models.get(param_name))
+    return results
+
+def fitting_regression_tree(params_model: Dict[str, Any],
+                            x_train: pd.DataFrame,
+                            y_train: Union[pd.Series, pd.DataFrame],
+                            exp_train: Union[pd.Series, pd.DataFrame]) -> sklearn.tree._classes.DecisionTreeRegressor:
+    poisson_tree = DecisionTreeRegressor(**params_model)
+    poisson_tree.fit(x_train, y_train, sample_weight=exp_train)
+    return poisson_tree
+
+def run_hyperopt_for_tree_based_methods(df_train:pd.DataFrame,
+                                        hyperparams_space:Dict[str, Iterable],
+                                        model_fit_func:FunctionType,
+                                        loss_function:Union[FunctionType],
+                                        params_to_record:List[str]=None,
+                                        exposure_name:str=params.get(Constants.EXPOSURE_NAME),
+                                        target_name:str=params.get(Constants.CLAIM_FREQUENCY),
+                                        limit_time:int=100,
+                                        max_iter:int=100,
+                                        is_debug:bool=False) -> Tuple[pd.DataFrame,  sklearn.tree._classes.DecisionTreeRegressor]:
+    '''
+    :param df: Train Dataset on which the data fold will be build
+    :param hyperparams_space: dictionarry with the name (that the model_fit_func takes) of the hyperparam and an iterable containing all values to sample from
+    :param model_fit_func:  a custom/user-defined wrapper function fitting a model
+    :param loss_function:  a user-defined function or sklearn.metric to assess the performance on the k-fold
+    :param params_to_record: a list containing all the hyperparam name to record
+    :param limit_time: maximum time in seconds to run the hyperopt
+    :param max_iter: number of max iterations to run the hyperopt
+    :return:
+    '''
+    max_combinations = np.cumprod([len(v) for v in hyperparams_space.values()])[-1]
+    tried_hyperparam = set()
+    if not max_iter:
+        max_iter = max_combinations
+    else:
+        max_iter = min(max_iter, max_combinations)
+    if is_debug:
+        print(f'the number of the maximum iterations is {max_iter}')
+    nb_iter = 1
+    start = time()
+    duration = time() - start
+    cv_results = defaultdict(list)
+    best_models = None
+    best_val_score = math.inf
+    while (nb_iter <= max_iter) and (duration < limit_time):
+        if is_debug:
+            print(f'--------------------------------')
+            print(f'{nb_iter} iteration starting...')
+            print(f'{duration} time elapsed...')
+        random_hyper_param = {hyperparam: random.choice(range_) for hyperparam, range_ in hyperparams_space.items()}
+        hyper_space_combi = '-'.join([str(f'{p}:{random_hyper_param.get(p)}') for p in params_to_record])
+        if hyper_space_combi in tried_hyperparam:  # do not try an aleady tested hyperparam combination
+            continue
+
+        cv_result = run_cross_validation_for_tree_based_methods(df_train=df_train,
+                                                                model_fit_func=model_fit_func,
+                                                                params_models=random_hyper_param,
+                                                                loss_function=loss_function,
+                                                                params_to_record=params_to_record,
+                                                                exposure_name=exposure_name,
+                                                                target_name=target_name)
+
+        cv_mean_loss = np.mean(cv_result['loss'])
+        cv_std_loss = np.std(cv_result['loss'])
+        if cv_mean_loss < best_val_score:
+            best_models = cv_result['model']
+            best_val_score = cv_mean_loss
+
+        cv_results['losses'].append(cv_result['loss'])
+        cv_results['cv_mean_loss'].append(cv_mean_loss)
+        cv_results['cv_std_loss'].append(cv_std_loss)
+        cv_results['hyperparams'].append(hyper_space_combi)
+        for param_to_record in params_to_record:
+            cv_results[param_to_record].append(random_hyper_param[param_to_record])
+
+        tried_hyperparam.add(hyper_space_combi)
+        nb_iter += 1
+        duration = time() - start
+
+    #TODO: return the best score based on the error quadratic lower mean loss and lower std deviation
+    return pd.DataFrame.from_dict(cv_results), best_models
 
 
 def run_cross_validation_for_tree_based_methods(
@@ -303,8 +553,8 @@ def run_hyperopt_for_tree_based_methods(
     if is_debug:
         print(f"the number of the maximum iterations is {max_iter}")
     nb_iter = 1
-    start = time.time()
-    duration = time.time() - start
+    start = time()
+    duration = time() - start
     cv_results = defaultdict(list)
     best_models = None
     best_val_score = math.inf
@@ -350,7 +600,7 @@ def run_hyperopt_for_tree_based_methods(
 
         tried_hyperparam.add(hyper_space_combi)
         nb_iter += 1
-        duration = time.time() - start
+        duration = time() - start
 
     # TODO: return the best score based on the error quadratic lower mean loss and lower std deviation
     return pd.DataFrame.from_dict(cv_results), best_models
@@ -520,8 +770,8 @@ def run_hyperopt(
     if is_debug:
         print(f"the number of the maximum iterations is {max_iter}")
     nb_iter = 1
-    start = time.time()
-    duration = time.time() - start
+    start = time()
+    duration = time() - start
     cv_results = defaultdict(list)
     while (nb_iter <= max_iter) and (duration < limit_time):
         if is_debug:
@@ -558,7 +808,7 @@ def run_hyperopt(
 
         tried_hyperparam.add(hyper_space_combi)
         nb_iter += 1
-        duration = time.time() - start
+        duration = time() - start
 
     # TODO: return the best score based on the error quadratic lower mean loss and lower std deviation
     return pd.DataFrame.from_dict(cv_results)
@@ -815,12 +1065,16 @@ def apply_mean_hot_categorical_encoding(
 
 
 def get_avg_target_per_numerical_bin(
-    df: pd.DataFrame, feature: str, target: Union[str, List[str]]
+    df: pd.DataFrame, feature: str, target:str, exposure_name:str
 ) -> Union[pd.DataFrame, pd.Series]:
     df_cp = df.copy()
     binned_feature = f"{feature}_bin_quantile_based"
     df_cp[binned_feature] = pd.qcut(df[feature], q=10, precision=0, duplicates="drop")
-    return df_cp.groupby(binned_feature)[target].mean()
+    weighted_claim_freq = df_cp.groupby(binned_feature).agg(sum_claims=(target, 'sum'),
+                                                            exposure=(exposure_name, 'sum'))
+    weighted_claim_freq['weighted_claim_frequency'] = weighted_claim_freq['sum_claims'] / weighted_claim_freq[
+        'exposure']
+    return weighted_claim_freq
 
 
 def get_distribution_info_for_categorical_variables(df: pd.DataFrame) -> pd.DataFrame:

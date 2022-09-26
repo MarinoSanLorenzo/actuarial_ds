@@ -11,10 +11,25 @@ __all__ = [
     "plot_avg_target_per_numerical_bin",
     "plt_avg_target_per_category",
     "plot_params_vs_alpha",
+    "get_feature_importance_for_tree_based_methods"
 ]
 
 
-def plot_params_vs_alpha(reg_results: pd.DataFrame) -> None:
+class TreeModel:
+    pass
+
+def get_feature_importance_for_tree_based_methods(tree_model:TreeModel, columns:List[str]) -> None:
+    feature_importances = dict()
+    for feature, importance in zip(columns,  tree_model.feature_importances_):
+        feature_importances[feature] = importance
+    feature_importances_df = pd.DataFrame.from_dict(feature_importances, orient='index')
+    feature_importances_df.rename(columns={0:'importance'}, inplace=True)
+    feature_importances_df.query('importance>0').sort_values(by='importance').plot.barh(figsize=(8,8))
+    plt.title('Feature importances')
+    plt.xlabel('Sum of reduced deviance imduced by a feature splits')
+
+def plot_params_vs_alpha(reg_results:pd.DataFrame) -> None:
+
     reg_results.plot()
     plt.xlabel("alpha")
     plt.ylabel("coefficient")
@@ -50,6 +65,7 @@ def plot_avg_target_per_numerical_bin(
     numerical_variables: List[str],
     params: Dict[str, Any],
     target: str = None,
+    exposure_name:str = None,
 ) -> None:
     nb_claims, claim_amount, var_to_exclude = (
         params.get(Constants2.NB_CLAIMS),
@@ -66,16 +82,12 @@ def plot_avg_target_per_numerical_bin(
             target,
         }:
             avg_claim_frequency_per_bin = get_avg_target_per_numerical_bin(
-                df, num_var, target
+                df, num_var, target, exposure_name
             )
-            avg_nb_claims_per_bin = get_avg_target_per_numerical_bin(
-                df, num_var, nb_claims
-            )
-            avg_claim_frequency_per_bin.plot(label=target)
-            avg_nb_claims_per_bin.plot(label=nb_claims)
-            plt.ylabel(f"Average {target} and {nb_claims}")
+            avg_claim_frequency_per_bin.weighted_claim_frequency.plot()
+            plt.ylabel(f"Weighted claim frequency")
             plt.xticks(rotation=90)
-            plt.title(f"Average {target} and {nb_claims} per bin {num_var}")
+            plt.title(f"Weighted claim frequency {target} per bin {num_var}")
             plt.legend()
             plt.show()
             plt.close()
